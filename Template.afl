@@ -1,0 +1,109 @@
+
+/********************************************************************************			
+Description
+-----------
+
+Setup
+-----------
+
+Trigger
+-----------
+
+*********************************************************************************/
+#include_once <Base.afl>
+#include_once <StdLib.afl>
+
+_N(SystemName="SET_SYSTEM_NAME");
+SetFormulaName(SystemName);
+
+//###########  STOP's  ###########
+//# Basic Dollar Stop
+
+SYM = StrLeft(Name(),2);
+switch(SYM)
+{
+	case "ES":
+		DollarStop = 1500;
+		ndays = 1;
+		nticks = 201;
+		break;
+	case "US":
+		DollarStop = 1700;
+		nticks = 41;
+		ndays = 1;
+		break;		
+	default:
+		DollarStop = 500;
+		nticks = 40;
+		ndays = 1;
+}
+
+//DollarStop = Optimize("Stop",1500,100,2000,200);
+//nticks = Optimize("nTicks",30,1,1000,10);
+//ndays = Optimize("ndays",1,1,5,1);
+StopAmount = DollarStop / PointValue;
+
+//###################### Buy Setup     ######################
+BuySetup = True;	
+			
+Buy = Ref(BuySetup,-1); 
+BuyPrice = Ref(O, 0);
+
+// Sell on first Profitable Opening or Stop Loss
+Sell =  BarsSince(Buy) >= ndays AND H > (ValueWhen(Buy,BuyPrice) + nticks*TickSize);
+SellPrice = (ValueWhen(Buy,BuyPrice) + nticks*TickSize);
+Sell = ExRem( Sell, Buy );
+
+//###################### Short Setup   ###################### 
+ShortSetup = False;
+						
+Short = Ref(ShortSetup,-1);
+ShortPrice = Ref(O, 0);
+
+// Sell on first Profitable Opening or Stop Loss
+Cover =  BarsSince(Short) >= ndays 	AND L < (ValueWhen(Short,ShortPrice) - nticks*TickSize);
+Cover = ExRem( Cover, Short );
+CoverPrice = (ValueWhen(Short,ShortPrice) - nticks*TickSize);
+
+//###################### Stop Loss     ###################### 
+// Fixed Stop
+ApplyStop(stopTypeLoss, stopModePoint, StopAmount , True, True );
+Equity(1);
+
+//###################### Scans         ######################
+Filter = BuySetup OR ShortSetup;
+AddTextColumn(SystemName,"System",1.2,
+		IIf(BuySetup, colorGreen,
+		IIf(ShortSetup,colorRed,colorDefault)),
+		colorDefault);
+
+//###################### Commentry     ######################
+if(Status("action") == actionCommentary)
+{ 
+	Str =  "====================\n"+
+		    SystemName +"\n" +
+		   "====================\n";
+	
+	Stop = Ref(H,-1) - StopAmount;
+	Target = Stop + nticks*TickSize;
+	Str +=  WriteIf(BuySetup, 
+		    "Buy Next Day\n" +
+		    "IF Next OPEN < Yesturday's HIGH\n" +
+			StrFormat("AND we get above @%.2f \n",Ref(H,-1)) +
+			StrFormat("Stop $%.0f @%.2f\n",DollarStop,Stop) + 
+			StrFormat("Target @%8.2f",Target)
+			,""
+	);
+	Stop = Ref(L,-1) + StopAmount;
+	Target = Stop - nticks*TickSize;
+	Str +=  WriteIf(ShortSetup,
+			"Short Next Day\n" +
+			"IF Next OPEN > Yesturday's LOW\n" +
+			StrFormat("AND we get below @%.2f\n", Ref(L,-1)) +
+			StrFormat("Stop $%.0f @%.2f\n",DollarStop,Stop) + 
+			StrFormat("Target @%.2f",Target)
+			,""
+	);
+	printf(Str);
+}
+
